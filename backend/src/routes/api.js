@@ -1,0 +1,14 @@
+import { Router } from 'express';
+import * as c from '../controllers/api.js';
+export const router = Router();
+router.get('/the-loai', c.listGenres);
+router.post('/the-loai', c.createGenre);
+router.put('/the-loai/:id', c.updateGenre);
+router.delete('/the-loai/:id', c.deleteGenre);
+router.get('/phim/stats', c.movieStats);
+router.get('/phim', c.listMovies);
+router.get('/phim/:id', c.getMovie);
+router.post('/phim', c.createMovie);
+router.put('/phim/:id', c.updateMovie);
+router.delete('/phim/:id', c.deleteMovie);
+router.post('/phim/:id/danh-gia', c.reviewMovie);
