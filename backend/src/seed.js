@@ -2,7 +2,7 @@ import { connectDb, run, get, closeDb } from './models/db.js';
 
 const genres = ['Hành động', 'Tâm lý', 'Khoa học viễn tưởng', 'Hoạt hình'];
 const movies = [
-  ['N23DCPT054', 'Nguyễn Thái Tuấn', 2026, 115, 'P', 4],
+  ['Học Đường N23DCPT054', 'Nguyễn Thái Tuấn', 2026, 115, 'P', 4],
   ['Bầu trời phương Nam', 'Trần Minh', 2022, 122, 'T13', 2],
   ['Thành phố sao', 'Lê An', 2024, 138, 'T13', 3],
   ['Cuộc đua cuối', 'Phạm Hải', 2021, 110, 'T16', 1],
