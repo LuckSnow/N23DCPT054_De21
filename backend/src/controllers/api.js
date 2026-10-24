@@ -1,4 +1,4 @@
-import { db } from '../models/db.js';
+import { collection } from '../models/db.js';
 import * as phim from '../models/phim.js';
 import { HttpError } from '../middlewares/common.js';
 
@@ -6,30 +6,37 @@ const fail = (status, message, details = []) => { throw new HttpError(status, me
 const positiveId = value => { const n = Number(value); if (!Number.isSafeInteger(n) || n < 1) fail(400, 'ID không hợp lệ.'); return n; };
 const trim = value => typeof value === 'string' ? value.trim() : '';
 const integer = value => typeof value === 'number' && Number.isInteger(value);
-const exists = (table, id) => db.prepare(`SELECT id FROM ${table} WHERE id=?`).get(id);
+const exists = (table, id) => collection(table).findOne({ id });
+const key = value => value.toLocaleLowerCase('vi');
+async function nextId(name) {
+  const result = await collection('counters').findOneAndUpdate({ _id: name }, { $inc: { value: 1 } },
+    { upsert: true, returnDocument: 'after' });
+  return result.value;
+}
 
-export function listGenres(req, res) { res.json(db.prepare('SELECT * FROM the_loai ORDER BY ten').all()); }
-export function createGenre(req, res) {
-  const ten = trim(req.body.ten);
+export async function listGenres(req, res) { res.json((await collection('the_loai').find({}).sort({ ten: 1 }).toArray()).map(({id,ten})=>({id,ten}))); }
+export async function createGenre(req, res) {
+  const ten = trim(req.body?.ten);
   if (!ten) fail(400, 'Dữ liệu không hợp lệ.', [{ field: 'ten', message: 'Tên thể loại là bắt buộc.' }]);
-  if (db.prepare('SELECT id FROM the_loai WHERE LOWER(ten)=LOWER(?)').get(ten)) fail(409, 'Thể loại đã tồn tại.', [{ field: 'ten', message: 'Tên thể loại không được trùng.' }]);
-  const id = Number(db.prepare('INSERT INTO the_loai(ten) VALUES(?)').run(ten).lastInsertRowid);
+  if (await collection('the_loai').findOne({ tenKey: key(ten) })) fail(409, 'Thể loại đã tồn tại.', [{ field: 'ten', message: 'Tên thể loại không được trùng.' }]);
+  const id = await nextId('the_loai');
+  await collection('the_loai').insertOne({ id, ten, tenKey: key(ten) });
   res.status(201).json({ id, ten });
 }
-export function updateGenre(req, res) {
-  const id = positiveId(req.params.id), ten = trim(req.body.ten);
-  if (!exists('the_loai', id)) fail(404, 'Không tìm thấy thể loại.');
+export async function updateGenre(req, res) {
+  const id = positiveId(req.params.id), ten = trim(req.body?.ten);
+  if (!await exists('the_loai', id)) fail(404, 'Không tìm thấy thể loại.');
   if (!ten) fail(400, 'Dữ liệu không hợp lệ.', [{ field: 'ten', message: 'Tên thể loại là bắt buộc.' }]);
-  if (db.prepare('SELECT id FROM the_loai WHERE LOWER(ten)=LOWER(?) AND id<>?').get(ten, id)) fail(409, 'Thể loại đã tồn tại.', [{ field: 'ten', message: 'Tên thể loại không được trùng.' }]);
-  db.prepare('UPDATE the_loai SET ten=? WHERE id=?').run(ten, id); res.json({ id, ten });
+  if (await collection('the_loai').findOne({ tenKey: key(ten), id: { $ne: id } })) fail(409, 'Thể loại đã tồn tại.', [{ field: 'ten', message: 'Tên thể loại không được trùng.' }]);
+  await collection('the_loai').updateOne({ id }, { $set: { ten, tenKey: key(ten) } }); res.json({ id, ten });
 }
-export function deleteGenre(req, res) {
+export async function deleteGenre(req, res) {
   const id = positiveId(req.params.id);
-  if (!exists('the_loai', id)) fail(404, 'Không tìm thấy thể loại.');
-  if (db.prepare('SELECT id FROM phim WHERE the_loai_id=? LIMIT 1').get(id)) fail(409, 'Thể loại đang có phim, không thể xóa.');
-  db.prepare('DELETE FROM the_loai WHERE id=?').run(id); res.json({ message: 'Đã xóa thể loại.' });
+  if (!await exists('the_loai', id)) fail(404, 'Không tìm thấy thể loại.');
+  if (await collection('phim').findOne({ theLoaiId: id })) fail(409, 'Thể loại đang có phim, không thể xóa.');
+  await collection('the_loai').deleteOne({ id }); res.json({ message: 'Đã xóa thể loại.' });
 }
-function movieData(body) {
+async function movieData(body) {
   const data = { ten: trim(body.ten), daoDien: trim(body.daoDien), namPhatHanh: body.namPhatHanh,
     thoiLuong: body.thoiLuong, gioiHanTuoi: body.gioiHanTuoi, theLoaiId: body.theLoaiId };
   const details = [];
@@ -38,12 +45,12 @@ function movieData(body) {
   if (!integer(data.namPhatHanh) || data.namPhatHanh < 1950 || data.namPhatHanh > new Date().getFullYear() + 1) details.push({ field: 'namPhatHanh', message: 'Năm phát hành không hợp lệ.' });
   if (!integer(data.thoiLuong) || data.thoiLuong < 30 || data.thoiLuong > 300) details.push({ field: 'thoiLuong', message: 'Thời lượng phải từ 30 đến 300 phút.' });
   if (!['P','T13','T16','T18'].includes(data.gioiHanTuoi)) details.push({ field: 'gioiHanTuoi', message: 'Giới hạn tuổi không hợp lệ.' });
-  if (!integer(data.theLoaiId) || !exists('the_loai', data.theLoaiId)) details.push({ field: 'theLoaiId', message: 'Thể loại không tồn tại.' });
+  if (!integer(data.theLoaiId) || !await exists('the_loai', data.theLoaiId)) details.push({ field: 'theLoaiId', message: 'Thể loại không tồn tại.' });
   if (details.length) fail(400, 'Dữ liệu không hợp lệ.', details);
   return data;
 }
-function duplicateMovie(data, id = 0) {
-  if (db.prepare('SELECT id FROM phim WHERE LOWER(ten)=LOWER(?) AND nam_phat_hanh=? AND id<>?').get(data.ten, data.namPhatHanh, id))
+async function duplicateMovie(data, id = 0) {
+  if (await collection('phim').findOne({ tenKey: key(data.ten), namPhatHanh: data.namPhatHanh, id: { $ne: id } }))
     fail(409, 'Phim và năm phát hành đã tồn tại.', [{ field: 'ten', message: 'Cặp tên phim và năm phát hành không được trùng.' }]);
 }
 function listFilters(query) {
@@ -62,37 +69,38 @@ function listFilters(query) {
   if (details.length) fail(400, 'Tham số không hợp lệ.', details);
   return filters;
 }
-export function listMovies(req, res) { res.json(phim.list(listFilters(req.query))); }
-export function getMovie(req, res) { const item = phim.one(positiveId(req.params.id)); if (!item) fail(404, 'Không tìm thấy phim.'); res.json(item); }
-export function createMovie(req, res) {
-  const data = movieData(req.body); duplicateMovie(data);
-  const id = Number(db.prepare(`INSERT INTO phim(ten,dao_dien,nam_phat_hanh,thoi_luong,gioi_han_tuoi,the_loai_id) VALUES(?,?,?,?,?,?)`)
-    .run(data.ten, data.daoDien, data.namPhatHanh, data.thoiLuong, data.gioiHanTuoi, data.theLoaiId).lastInsertRowid);
-  res.status(201).json(phim.one(id));
+export async function listMovies(req, res) { res.json(await phim.list(listFilters(req.query))); }
+export async function getMovie(req, res) { const item = await phim.one(positiveId(req.params.id)); if (!item) fail(404, 'Không tìm thấy phim.'); res.json(item); }
+export async function createMovie(req, res) {
+  const data = await movieData(req.body || {}); await duplicateMovie(data);
+  const id = await nextId('phim');
+  await collection('phim').insertOne({ id, ...data, tenKey: key(data.ten), danhGia: [] });
+  res.status(201).json(await phim.one(id));
 }
-export function updateMovie(req, res) {
-  const id = positiveId(req.params.id); if (!exists('phim', id)) fail(404, 'Không tìm thấy phim.');
-  const data = movieData(req.body); duplicateMovie(data, id);
-  db.prepare(`UPDATE phim SET ten=?,dao_dien=?,nam_phat_hanh=?,thoi_luong=?,gioi_han_tuoi=?,the_loai_id=? WHERE id=?`)
-    .run(data.ten, data.daoDien, data.namPhatHanh, data.thoiLuong, data.gioiHanTuoi, data.theLoaiId, id);
-  res.json(phim.one(id));
+export async function updateMovie(req, res) {
+  const id = positiveId(req.params.id); if (!await exists('phim', id)) fail(404, 'Không tìm thấy phim.');
+  const data = await movieData(req.body || {}); await duplicateMovie(data, id);
+  await collection('phim').updateOne({ id }, { $set: { ...data, tenKey: key(data.ten) } });
+  res.json(await phim.one(id));
 }
-export function deleteMovie(req, res) {
-  const id = positiveId(req.params.id); if (!exists('phim', id)) fail(404, 'Không tìm thấy phim.');
-  db.prepare('DELETE FROM phim WHERE id=?').run(id); res.json({ message: 'Đã xóa phim.' });
+export async function deleteMovie(req, res) {
+  const id = positiveId(req.params.id); if (!await exists('phim', id)) fail(404, 'Không tìm thấy phim.');
+  await collection('phim').deleteOne({ id }); res.json({ message: 'Đã xóa phim.' });
 }
-export function reviewMovie(req, res) {
-  const id = positiveId(req.params.id); if (!exists('phim', id)) fail(404, 'Không tìm thấy phim.');
-  const nguoi = trim(req.body.nguoiDanhGia), diem = req.body.diem, binhLuan = trim(req.body.binhLuan);
+export async function reviewMovie(req, res) {
+  const id = positiveId(req.params.id); if (!await exists('phim', id)) fail(404, 'Không tìm thấy phim.');
+  const body = req.body || {};
+  const nguoi = trim(body.nguoiDanhGia), diem = body.diem, binhLuan = trim(body.binhLuan);
   const details = [];
   if (!nguoi) details.push({ field: 'nguoiDanhGia', message: 'Tên người đánh giá là bắt buộc.' });
   if (!integer(diem) || diem < 1 || diem > 10) details.push({ field: 'diem', message: 'Điểm phải là số nguyên từ 1 đến 10.' });
-  if (typeof req.body.binhLuan !== 'string') details.push({ field: 'binhLuan', message: 'Bình luận phải là chuỗi.' });
+  if (typeof body.binhLuan !== 'string') details.push({ field: 'binhLuan', message: 'Bình luận phải là chuỗi.' });
   if (details.length) fail(400, 'Dữ liệu không hợp lệ.', details);
-  if (db.prepare('SELECT id FROM danh_gia WHERE phim_id=? AND LOWER(nguoi_danh_gia)=LOWER(?)').get(id, nguoi))
-    fail(409, 'Bạn đã đánh giá phim này.', [{ field: 'nguoiDanhGia', message: 'Mỗi người chỉ được đánh giá một lần.' }]);
   const ngay = new Date().toISOString();
-  const reviewId = Number(db.prepare('INSERT INTO danh_gia(phim_id,nguoi_danh_gia,diem,binh_luan,ngay) VALUES(?,?,?,?,?)').run(id,nguoi,diem,binhLuan,ngay).lastInsertRowid);
+  const reviewId = await nextId('danh_gia');
+  const updated = await collection('phim').updateOne({ id, 'danhGia.nguoiDanhGiaKey': { $ne: key(nguoi) } },
+    { $push: { danhGia: { id: reviewId, nguoiDanhGia: nguoi, nguoiDanhGiaKey: key(nguoi), diem, binhLuan, ngay } } });
+  if (!updated.modifiedCount) fail(409, 'Bạn đã đánh giá phim này.', [{ field: 'nguoiDanhGia', message: 'Mỗi người chỉ được đánh giá một lần.' }]);
   res.status(201).json({ id: reviewId, nguoiDanhGia: nguoi, diem, binhLuan, ngay });
 }
-export function movieStats(req, res) { res.json(phim.stats()); }
+export async function movieStats(req, res) { res.json(await phim.stats()); }

@@ -1,4 +1,4 @@
-import { db } from './models/db.js';
+import { connectDb, collection, closeDb } from './models/db.js';
 
 const genres = ['Hành động', 'Tâm lý', 'Khoa học viễn tưởng', 'Hoạt hình'];
 const movies = [
@@ -14,28 +14,32 @@ const movies = [
   ['Ngày mới', 'Đỗ Hạnh', 2023, 101, 'P', 2]
 ];
 const comments = ['Phim rất cuốn hút.', 'Diễn xuất tốt.', 'Hình ảnh đẹp.', 'Câu chuyện thú vị.'];
-const existing = db.prepare('SELECT COUNT(*) AS count FROM the_loai').get().count +
-  db.prepare('SELECT COUNT(*) AS count FROM phim').get().count +
-  db.prepare('SELECT COUNT(*) AS count FROM danh_gia').get().count;
-if (existing) {
-  console.log('Cơ sở dữ liệu đã có dữ liệu; seed chỉ chạy trên cơ sở dữ liệu trống.');
-  process.exit(0);
-}
-db.exec('BEGIN');
 try {
-  const addGenre = db.prepare('INSERT INTO the_loai(ten) VALUES(?)');
-  const genreIds = genres.map(ten => Number(addGenre.run(ten).lastInsertRowid));
-  const addMovie = db.prepare('INSERT INTO phim(ten,dao_dien,nam_phat_hanh,thoi_luong,gioi_han_tuoi,the_loai_id) VALUES(?,?,?,?,?,?)');
-  const addReview = db.prepare('INSERT INTO danh_gia(phim_id,nguoi_danh_gia,diem,binh_luan,ngay) VALUES(?,?,?,?,?)');
-  movies.forEach((movie, index) => {
+  await connectDb();
+  const existing = await Promise.all(['the_loai', 'phim'].map(name => collection(name).estimatedDocumentCount()));
+  if (existing.some(Boolean)) {
+    console.log('Cơ sở dữ liệu đã có dữ liệu; seed chỉ chạy trên cơ sở dữ liệu trống.');
+    process.exitCode = 0;
+  } else {
+    await collection('the_loai').insertMany(genres.map((ten, index) => ({ id: index + 1, ten, tenKey: ten.toLocaleLowerCase('vi') })));
+    const documents = movies.map((movie, index) => {
     const [ten, daoDien, nam, thoiLuong, tuoi, genre] = movie;
-    const id = Number(addMovie.run(ten, daoDien, nam, thoiLuong, tuoi, genreIds[genre - 1]).lastInsertRowid);
     const count = index < 5 ? 3 : 2;
+    const danhGia = [];
     for (let j = 0; j < count; j++) {
-      addReview.run(id, `Thành viên ${j + 1}`, 6 + ((index + j) % 5), comments[(index + j) % 4],
-        new Date(Date.UTC(2026, 8, index + 1, j)).toISOString());
+      danhGia.push({ id: index < 5 ? index * 3 + j + 1 : 16 + (index - 5) * 2 + j,
+        nguoiDanhGia: `Thành viên ${j + 1}`, nguoiDanhGiaKey: `thành viên ${j + 1}`,
+        diem: 6 + ((index + j) % 5), binhLuan: comments[(index + j) % 4],
+        ngay: new Date(Date.UTC(2026, 8, index + 1, j)).toISOString() });
     }
-  });
-  db.exec('COMMIT');
-  console.log('Đã tạo 4 thể loại, 10 phim và 25 đánh giá.');
-} catch (error) { db.exec('ROLLBACK'); throw error; }
+    return { id: index + 1, ten, tenKey: ten.toLocaleLowerCase('vi'), daoDien, namPhatHanh: nam,
+      thoiLuong, gioiHanTuoi: tuoi, theLoaiId: genre, danhGia };
+    });
+    await collection('phim').insertMany(documents);
+    await collection('counters').updateOne({ _id: 'the_loai' }, { $set: { value: 4 } }, { upsert: true });
+    await collection('counters').updateOne({ _id: 'phim' }, { $set: { value: 10 } }, { upsert: true });
+    await collection('counters').updateOne({ _id: 'danh_gia' }, { $set: { value: 25 } }, { upsert: true });
+    console.log('Đã tạo 4 thể loại, 10 phim và 25 đánh giá.');
+  }
+} catch (error) { console.error('Seed thất bại:', error.message); process.exitCode = 1; }
+finally { await closeDb(); }

@@ -1,5 +1,7 @@
 node_modules/
 .next/
 .env
-backend/data/*.sqlite
+.env.local
+.env.*.local
+backend/data/
 *.zip

@@ -6,7 +6,7 @@
 
 ## Yêu cầu môi trường
 
-Node.js 24 trở lên (dùng `node:sqlite`), npm. Backend chạy ở cổng **5019**. Có thể tạo `.env` từ các file `.env.example` để đổi đường dẫn SQLite và URL API.
+Node.js 20 trở lên, npm và MongoDB Atlas. Backend chạy ở cổng **5019**. Tạo `backend/.env` từ `backend/.env.example`, điền `MONGODB_URI` bằng username và mật khẩu Database Access của Atlas. Giữ file `.env` trên máy, không commit. Nếu mật khẩu có ký tự đặc biệt, mã hóa URL trước khi đặt vào URI. Trong Atlas, cho phép IP máy chạy ứng dụng trong Network Access. Frontend dùng URL API mặc định `http://localhost:5019`; có thể đổi trong `frontend/.env.local` từ file mẫu.
 
 ## Cài đặt và chạy
 
@@ -43,10 +43,10 @@ Không có theo yêu cầu của đề.
 
 ## Cấu trúc và luồng xử lý
 
-- `backend/src/models/db.js` tạo các bảng SQLite, khóa ngoại, ràng buộc duy nhất. `models/phim.js` truy vấn danh sách/chi tiết/thống kê và tính điểm trung bình từ bảng đánh giá.
+- `backend/src/models/db.js` kết nối MongoDB, tạo unique index cho tên thể loại và cặp tên phim/năm; collection `counters` cấp ID số. `models/phim.js` đọc phim và đánh giá nhúng trong phim, tính điểm trung bình, lọc/phân trang và thống kê.
 - `backend/src/routes/api.js` định nghĩa endpoint. `controllers/api.js` kiểm tra dữ liệu và quy tắc nghiệp vụ, sau đó gọi model và trả mã 200/201/400/404/409. `middlewares/common.js` gắn mã sinh viên, ghi log và xử lý lỗi tập trung.
 - `frontend/src/lib/api.ts` là lớp gọi API và đọc lỗi từng trường. Trang danh sách dùng Client Component để lọc/phân trang, trang chi tiết dùng Server Component để tải phim; các form và nút thao tác dùng Client Component.
-- `npm run seed` chỉ nạp vào cơ sở dữ liệu trống, trong một transaction; chạy lại sẽ giữ nguyên dữ liệu hiện có.
+- `npm run seed` chỉ nạp vào cơ sở dữ liệu trống; chạy lại sẽ giữ nguyên dữ liệu hiện có. Đảm bảo URI trỏ đúng database trước khi chạy seed.
 
 ## API chính
 

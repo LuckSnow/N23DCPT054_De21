@@ -9,7 +9,7 @@ export class HttpError extends Error {
 }
 export function errorHandler(error, req, res, next) {
   if (res.headersSent) return next(error);
-  if (error.code?.startsWith('SQLITE_CONSTRAINT')) {
+  if (error.code === 11000) {
     return res.status(409).json({ error: 'Dữ liệu vi phạm ràng buộc.', details: [] });
   }
   if (!error.status) console.error(error);
